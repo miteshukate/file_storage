@@ -21,6 +21,7 @@ type Decision struct {
 // Authenticator validates incoming requests and returns a Principal.
 type Authenticator interface {
 	Authenticate(ctx context.Context, token string) (*Principal, error)
+	GenerateToken(ctx context.Context, user interface{}) (string, error)
 }
 
 // Authorizer decides whether a principal may perform an action on a resource.

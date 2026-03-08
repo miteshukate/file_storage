@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// DocumentService abstracts storage operations so implementations can vary (MinIO, S3, etc.).
-type DocumentService interface {
+// StorageService abstracts storage operations so implementations can vary (MinIO, S3, etc.).
+type StorageService interface {
 	// StreamDocument returns a ReadCloser to stream object content; caller must close.
 	StreamDocument(ctx context.Context, name string) (io.ReadCloser, Content, error)
 	// GetPresignedURL returns a presigned URL for direct access.

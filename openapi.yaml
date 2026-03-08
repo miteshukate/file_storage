@@ -1,0 +1,3589 @@
+openapi: 3.0.3
+info:
+  title: Enterprise Document Management System API
+  description: |
+    A production-ready, multi-tenant SaaS Document Management System API with role-based
+    access control, document workflows, file versioning, sharing, audit logs, and analytics.
+
+    ## Authentication
+    All endpoints (except login, register-invite) require a valid JWT Bearer token.
+
+    ## Multi-Tenancy
+    Every request is scoped to a tenant via the `X-Tenant-ID` header or resolved from the JWT claims.
+
+    ## Pagination
+    List endpoints support `page` (0-indexed), `size`, and `sort` query parameters.
+
+    ## Error Responses
+    All error responses follow the `ErrorResponse` schema with `code`, `message`, and optional `details`.
+  version: 1.0.0
+  contact:
+    name: DMS API Support
+    email: api-support@dms.example.com
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.dms.example.com/v1
+    description: Production
+  - url: https://staging-api.dms.example.com/v1
+    description: Staging
+  - url: http://localhost:8080/v1
+    description: Local Development
+
+tags:
+  - name: Auth
+    description: Authentication and authorization
+  - name: Users
+    description: User management
+  - name: Teams
+    description: Team and group management
+  - name: Files
+    description: File operations
+  - name: Folders
+    description: Folder operations
+  - name: Explorer
+    description: File explorer and search
+  - name: Sharing
+    description: Sharing and permissions
+  - name: Workflows
+    description: Document workflows and approvals
+  - name: Audit
+    description: Audit and activity logs
+  - name: Analytics
+    description: Dashboard and analytics
+  - name: Notifications
+    description: User notifications
+  - name: Admin
+    description: Admin and tenant settings
+
+security:
+  - BearerAuth: []
+
+# ─────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────
+paths:
+
+  # ── AUTH ──────────────────────────────────
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      description: Authenticate with email and password, receive JWT access and refresh tokens.
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: alice@acme.com
+              password: "S3cur3P@ss!"
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      description: Invalidate the current refresh token.
+      operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '204':
+          description: Logged out successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: New access token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register user (admin only)
+      description: Create a new user account within the tenant. Requires admin role.
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user profile
+      operationId: getMe
+      responses:
+        '200':
+          description: Current authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me/password:
+    put:
+      tags: [Auth]
+      summary: Change own password
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Password changed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── USERS ─────────────────────────────────
+
+  /users:
+    get:
+      tags: [Users]
+      summary: List users
+      operationId: listUsers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Filter by name or email
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [admin, manager, editor, viewer]
+        - name: teamId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive, pending]
+      responses:
+        '200':
+          description: Paginated list of users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPageResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Users]
+      summary: Get user by ID
+      operationId: getUserById
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Users]
+      summary: Update user
+      operationId: updateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Users]
+      summary: Delete user
+      operationId: deleteUser
+      responses:
+        '204':
+          description: User deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{userId}/roles:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    put:
+      tags: [Users]
+      summary: Assign roles to user
+      operationId: assignRoles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignRolesRequest'
+      responses:
+        '200':
+          description: Roles updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{userId}/profile:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    patch:
+      tags: [Users]
+      summary: Update user profile
+      operationId: updateProfile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ── TEAMS ─────────────────────────────────
+
+  /teams:
+    get:
+      tags: [Teams]
+      summary: List teams
+      operationId: listTeams
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of teams
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamPageResponse'
+    post:
+      tags: [Teams]
+      summary: Create team
+      operationId: createTeam
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTeamRequest'
+      responses:
+        '201':
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /teams/{teamId}:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [Teams]
+      summary: Get team
+      operationId: getTeam
+      responses:
+        '200':
+          description: Team details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Teams]
+      summary: Update team
+      operationId: updateTeam
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTeamRequest'
+      responses:
+        '200':
+          description: Team updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamResponse'
+    delete:
+      tags: [Teams]
+      summary: Delete team
+      operationId: deleteTeam
+      responses:
+        '204':
+          description: Team deleted
+
+  /teams/{teamId}/members:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [Teams]
+      summary: List team members
+      operationId: listTeamMembers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Team members
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPageResponse'
+    post:
+      tags: [Teams]
+      summary: Add members to team
+      operationId: addTeamMembers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamMembersRequest'
+      responses:
+        '204':
+          description: Members added
+    delete:
+      tags: [Teams]
+      summary: Remove members from team
+      operationId: removeTeamMembers
+      parameters:
+        - name: userIds
+          in: query
+          required: true
+          description: Comma-separated list of user UUIDs to remove
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+          style: form
+          explode: false
+      responses:
+        '204':
+          description: Members removed
+
+  # ── FOLDERS ───────────────────────────────
+
+  /folders:
+    post:
+      tags: [Folders]
+      summary: Create folder
+      operationId: createFolder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFolderRequest'
+      responses:
+        '201':
+          description: Folder created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /folders/{folderId}:
+    parameters:
+      - $ref: '#/components/parameters/FolderId'
+    get:
+      tags: [Folders]
+      summary: Get folder metadata
+      operationId: getFolder
+      responses:
+        '200':
+          description: Folder metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Folders]
+      summary: Rename folder
+      operationId: renameFolder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameRequest'
+      responses:
+        '200':
+          description: Folder renamed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderResponse'
+    delete:
+      tags: [Folders]
+      summary: Delete folder (moves to trash)
+      operationId: deleteFolder
+      parameters:
+        - name: permanent
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '204':
+          description: Folder deleted
+
+  /folders/{folderId}/move:
+    parameters:
+      - $ref: '#/components/parameters/FolderId'
+    post:
+      tags: [Folders]
+      summary: Move folder
+      operationId: moveFolder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveRequest'
+      responses:
+        '200':
+          description: Folder moved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderResponse'
+
+  /folders/{folderId}/copy:
+    parameters:
+      - $ref: '#/components/parameters/FolderId'
+    post:
+      tags: [Folders]
+      summary: Copy folder
+      operationId: copyFolder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopyRequest'
+      responses:
+        '201':
+          description: Folder copied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderResponse'
+
+  /folders/{folderId}/restore:
+    parameters:
+      - $ref: '#/components/parameters/FolderId'
+    post:
+      tags: [Folders]
+      summary: Restore folder from trash
+      operationId: restoreFolder
+      responses:
+        '200':
+          description: Folder restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FolderResponse'
+
+  /folders/{folderId}/files:
+    parameters:
+      - $ref: '#/components/parameters/FolderId'
+    get:
+      tags: [Folders]
+      summary: Get all files in folder
+      operationId: getFilesByFolder
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Zero-indexed page number
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+          description: Number of items per page
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: createdAt,desc
+          description: Sort criteria (e.g., createdAt,desc)
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, trashed, archived]
+          description: Filter by file status
+        - name: mimeType
+          in: query
+          schema:
+            type: string
+          description: Filter by MIME type
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search in file name and tags
+      responses:
+        '200':
+          description: List of files in folder
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [content, totalElements, totalPages, currentPage, pageSize]
+                properties:
+                  content:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FileResponse'
+                  totalElements:
+                    type: integer
+                  totalPages:
+                    type: integer
+                  currentPage:
+                    type: integer
+                  pageSize:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── FILES ─────────────────────────────────
+
+  /files:
+    get:
+      tags: [Files]
+      summary: Get all files
+      operationId: getAllFiles
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Zero-indexed page number
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+          description: Number of items per page
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: createdAt,desc
+          description: Sort criteria (e.g., createdAt,desc)
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, trashed, archived]
+          description: Filter by file status
+        - name: mimeType
+          in: query
+          schema:
+            type: string
+          description: Filter by MIME type
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search in file name and tags
+      responses:
+        '200':
+          description: List of all files
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [content, totalElements, totalPages, currentPage, pageSize]
+                properties:
+                  content:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FileResponse'
+                  totalElements:
+                    type: integer
+                  totalPages:
+                    type: integer
+                  currentPage:
+                    type: integer
+                  pageSize:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      tags: [Files]
+      summary: Upload single file
+      operationId: uploadFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FileUploadRequest'
+      responses:
+        '201':
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+
+  /files/bulk:
+    post:
+      tags: [Files]
+      summary: Bulk upload files
+      operationId: bulkUploadFiles
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BulkFileUploadRequest'
+      responses:
+        '207':
+          description: Multi-status bulk upload result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkUploadResponse'
+
+  /files/{fileId}:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    get:
+      tags: [Files]
+      summary: Get file metadata
+      operationId: getFile
+      responses:
+        '200':
+          description: File metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Files]
+      summary: Rename file
+      operationId: renameFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameRequest'
+      responses:
+        '200':
+          description: File renamed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileResponse'
+    delete:
+      tags: [Files]
+      summary: Delete file (moves to trash)
+      operationId: deleteFile
+      parameters:
+        - name: permanent
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '204':
+          description: File deleted
+
+  /files/{fileId}/download:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    get:
+      tags: [Files]
+      summary: Download file
+      operationId: downloadFile
+      parameters:
+        - name: version
+          in: query
+          description: Specific version number; defaults to latest
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: File binary content
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="report.pdf"
+            Content-Type:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /files/bulk-download:
+    post:
+      tags: [Files]
+      summary: Bulk download files as ZIP
+      operationId: bulkDownload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkDownloadRequest'
+      responses:
+        '200':
+          description: ZIP archive of selected files
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+
+  /files/{fileId}/move:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    post:
+      tags: [Files]
+      summary: Move file
+      operationId: moveFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveRequest'
+      responses:
+        '200':
+          description: File moved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileResponse'
+
+  /files/{fileId}/copy:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    post:
+      tags: [Files]
+      summary: Copy file
+      operationId: copyFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CopyRequest'
+      responses:
+        '201':
+          description: File copied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileResponse'
+
+  /files/{fileId}/restore:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    post:
+      tags: [Files]
+      summary: Restore file from trash
+      operationId: restoreFile
+      responses:
+        '200':
+          description: File restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileResponse'
+
+  /files/{fileId}/preview:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    get:
+      tags: [Files]
+      summary: Get file preview
+      description: Returns a preview image or HTML rendition of the file.
+      operationId: previewFile
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [png, jpg, pdf, html]
+            default: png
+        - name: page
+          in: query
+          description: Page number for multi-page documents
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: Preview content
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            text/html:
+              schema:
+                type: string
+
+  /files/{fileId}/versions:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    get:
+      tags: [Files]
+      summary: List file versions
+      operationId: listFileVersions
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: List of file versions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileVersionPageResponse'
+    post:
+      tags: [Files]
+      summary: Upload new file version
+      operationId: uploadFileVersion
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FileVersionUploadRequest'
+      responses:
+        '201':
+          description: New version uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileVersionResponse'
+
+  /files/{fileId}/versions/{versionId}/restore:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+      - name: versionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Files]
+      summary: Restore a specific file version
+      operationId: restoreFileVersion
+      responses:
+        '200':
+          description: Version restored as latest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileResponse'
+
+  /files/{fileId}/tags:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    put:
+      tags: [Files]
+      summary: Set tags on file
+      operationId: setFileTags
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagsRequest'
+      responses:
+        '200':
+          description: Tags updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileResponse'
+
+  # ── EXPLORER ──────────────────────────────
+
+  /explorer:
+    get:
+      tags: [Explorer]
+      summary: List directory contents
+      operationId: listDirectory
+      parameters:
+        - name: folderId
+          in: query
+          description: Folder to list; omit for root
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [file, folder, all]
+            default: all
+      responses:
+        '200':
+          description: Directory listing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectoryResponse'
+
+  /explorer/breadcrumb:
+    get:
+      tags: [Explorer]
+      summary: Get breadcrumb path for a folder
+      operationId: getBreadcrumb
+      parameters:
+        - name: folderId
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Breadcrumb path from root to folder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BreadcrumbResponse'
+
+  /explorer/search:
+    get:
+      tags: [Explorer]
+      summary: Search files and folders
+      operationId: search
+      parameters:
+        - name: q
+          in: query
+          description: Full-text search query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [file, folder, all]
+            default: all
+        - name: mimeType
+          in: query
+          schema:
+            type: string
+            example: application/pdf
+        - name: ownerId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: tags
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+        - name: createdFrom
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: createdTo
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: modifiedFrom
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: modifiedTo
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: folderId
+          in: query
+          description: Scope search to a specific folder (and descendants)
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResultPageResponse'
+
+  # ── SHARING ───────────────────────────────
+
+  /shares:
+    post:
+      tags: [Sharing]
+      summary: Share file or folder with users/teams
+      operationId: createShare
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShareRequest'
+      responses:
+        '201':
+          description: Share created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /shares/{resourceType}/{resourceId}:
+    parameters:
+      - name: resourceType
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [file, folder]
+      - name: resourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Sharing]
+      summary: Get ACL for a resource
+      operationId: getAcl
+      responses:
+        '200':
+          description: Access control list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AclResponse'
+    delete:
+      tags: [Sharing]
+      summary: Revoke all sharing for a resource
+      operationId: revokeAllShares
+      responses:
+        '204':
+          description: All shares revoked
+
+  /shares/{resourceType}/{resourceId}/entries/{principalId}:
+    parameters:
+      - name: resourceType
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [file, folder]
+      - name: resourceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: principalId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    put:
+      tags: [Sharing]
+      summary: Update permission for a principal
+      operationId: updatePermission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePermissionRequest'
+      responses:
+        '200':
+          description: Permission updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AclEntryResponse'
+    delete:
+      tags: [Sharing]
+      summary: Revoke access for a principal
+      operationId: revokeAccess
+      responses:
+        '204':
+          description: Access revoked
+
+  /shares/public-links:
+    post:
+      tags: [Sharing]
+      summary: Generate public share link
+      operationId: generatePublicLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublicLinkRequest'
+      responses:
+        '201':
+          description: Public link generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicLinkResponse'
+
+  /shares/public-links/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      tags: [Sharing]
+      summary: Revoke public link
+      operationId: revokePublicLink
+      responses:
+        '204':
+          description: Public link revoked
+
+  # ── WORKFLOWS ─────────────────────────────
+
+  /workflow-templates:
+    get:
+      tags: [Workflows]
+      summary: List workflow templates
+      operationId: listWorkflowTemplates
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Workflow templates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTemplatePageResponse'
+    post:
+      tags: [Workflows]
+      summary: Create workflow template
+      operationId: createWorkflowTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowTemplateRequest'
+      responses:
+        '201':
+          description: Template created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTemplateResponse'
+
+  /workflow-templates/{templateId}:
+    parameters:
+      - name: templateId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Workflows]
+      summary: Get workflow template
+      operationId: getWorkflowTemplate
+      responses:
+        '200':
+          description: Template details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTemplateResponse'
+    put:
+      tags: [Workflows]
+      summary: Update workflow template
+      operationId: updateWorkflowTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowTemplateRequest'
+      responses:
+        '200':
+          description: Template updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTemplateResponse'
+    delete:
+      tags: [Workflows]
+      summary: Delete workflow template
+      operationId: deleteWorkflowTemplate
+      responses:
+        '204':
+          description: Template deleted
+
+  /workflows:
+    get:
+      tags: [Workflows]
+      summary: List workflow instances
+      operationId: listWorkflows
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, in_progress, approved, rejected, cancelled]
+        - name: fileId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: assigneeId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Workflow instances
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowInstancePageResponse'
+    post:
+      tags: [Workflows]
+      summary: Assign approval workflow to a document
+      operationId: createWorkflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkflowRequest'
+      responses:
+        '201':
+          description: Workflow instance created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowInstanceResponse'
+
+  /workflows/{workflowId}:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Workflows]
+      summary: Get workflow instance
+      operationId: getWorkflow
+      responses:
+        '200':
+          description: Workflow instance details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowInstanceResponse'
+
+  /workflows/{workflowId}/submit:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Workflows]
+      summary: Submit document for approval
+      operationId: submitWorkflow
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowSubmitRequest'
+      responses:
+        '200':
+          description: Workflow submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowInstanceResponse'
+
+  /workflows/{workflowId}/steps/{stepId}/approve:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: stepId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Workflows]
+      summary: Approve workflow step
+      operationId: approveStep
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowDecisionRequest'
+      responses:
+        '200':
+          description: Step approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowInstanceResponse'
+
+  /workflows/{workflowId}/steps/{stepId}/reject:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: stepId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Workflows]
+      summary: Reject workflow step
+      operationId: rejectStep
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowDecisionRequest'
+      responses:
+        '200':
+          description: Step rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowInstanceResponse'
+
+  /workflows/{workflowId}/history:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Workflows]
+      summary: Get workflow history
+      operationId: getWorkflowHistory
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Workflow history events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowHistoryPageResponse'
+
+  /workflows/{workflowId}/cancel:
+    parameters:
+      - name: workflowId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Workflows]
+      summary: Cancel workflow
+      operationId: cancelWorkflow
+      responses:
+        '200':
+          description: Workflow cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowInstanceResponse'
+
+  # ── AUDIT ─────────────────────────────────
+
+  /audit/file-activity:
+    get:
+      tags: [Audit]
+      summary: File activity history
+      operationId: getFileActivity
+      parameters:
+        - name: fileId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: folderId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          schema:
+            type: string
+            enum: [upload, download, view, move, copy, delete, restore, share, rename, version]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: File activity logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogPageResponse'
+
+  /audit/user-activity:
+    get:
+      tags: [Audit]
+      summary: User activity logs
+      operationId: getUserActivity
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: User activity logs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogPageResponse'
+
+  /audit/security:
+    get:
+      tags: [Audit]
+      summary: Security audit trail
+      operationId: getSecurityAudit
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: eventType
+          in: query
+          schema:
+            type: string
+            enum: [login, logout, login_failed, password_change, role_change, permission_change, mfa_enabled, mfa_disabled]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Security audit trail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogPageResponse'
+
+  # ── ANALYTICS ─────────────────────────────
+
+  /analytics/storage:
+    get:
+      tags: [Analytics]
+      summary: Storage usage statistics
+      operationId: getStorageStats
+      responses:
+        '200':
+          description: Storage usage breakdown
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageStatsResponse'
+
+  /analytics/activity:
+    get:
+      tags: [Analytics]
+      summary: Recent activity summary
+      operationId: getActivitySummary
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            default: 7
+            minimum: 1
+            maximum: 90
+      responses:
+        '200':
+          description: Activity summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivitySummaryResponse'
+
+  /analytics/file-types:
+    get:
+      tags: [Analytics]
+      summary: File counts by MIME type
+      operationId: getFileTypeStats
+      responses:
+        '200':
+          description: File type distribution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileTypeStatsResponse'
+
+  /analytics/workflows:
+    get:
+      tags: [Analytics]
+      summary: Workflow metrics
+      operationId: getWorkflowMetrics
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Workflow metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowMetricsResponse'
+
+  # ── NOTIFICATIONS ─────────────────────────
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications
+      operationId: listNotifications
+      parameters:
+        - name: read
+          in: query
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Notifications list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPageResponse'
+
+  /notifications/{notificationId}/read:
+    parameters:
+      - name: notificationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [Notifications]
+      summary: Mark notification as read
+      operationId: markNotificationRead
+      responses:
+        '204':
+          description: Marked as read
+
+  /notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: Mark all notifications as read
+      operationId: markAllNotificationsRead
+      responses:
+        '204':
+          description: All notifications marked as read
+
+  /notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Get unread notification count
+      operationId: getUnreadCount
+      responses:
+        '200':
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+
+  # ── ADMIN ─────────────────────────────────
+
+  /admin/tenants/{tenantId}:
+    parameters:
+      - name: tenantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Admin]
+      summary: Get tenant configuration
+      operationId: getTenant
+      responses:
+        '200':
+          description: Tenant configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+    put:
+      tags: [Admin]
+      summary: Update tenant configuration
+      operationId: updateTenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTenantRequest'
+      responses:
+        '200':
+          description: Updated tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+
+  /admin/tenants/{tenantId}/quota:
+    parameters:
+      - name: tenantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [Admin]
+      summary: Get storage quota
+      operationId: getQuota
+      responses:
+        '200':
+          description: Quota details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaResponse'
+    put:
+      tags: [Admin]
+      summary: Update storage quota
+      operationId: updateQuota
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateQuotaRequest'
+      responses:
+        '200':
+          description: Updated quota
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaResponse'
+
+  /admin/settings:
+    get:
+      tags: [Admin]
+      summary: Get system settings
+      operationId: getSettings
+      responses:
+        '200':
+          description: System settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSettingsResponse'
+    put:
+      tags: [Admin]
+      summary: Update system settings
+      operationId: updateSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSystemSettingsRequest'
+      responses:
+        '200':
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSettingsResponse'
+
+  /admin/allowed-file-types:
+    get:
+      tags: [Admin]
+      summary: Get allowed file types
+      operationId: getAllowedFileTypes
+      responses:
+        '200':
+          description: Allowed MIME types and extensions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowedFileTypesResponse'
+    put:
+      tags: [Admin]
+      summary: Update allowed file types
+      operationId: updateAllowedFileTypes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAllowedFileTypesRequest'
+      responses:
+        '200':
+          description: Updated allowed file types
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllowedFileTypesResponse'
+
+# ─────────────────────────────────────────────
+# COMPONENTS
+# ─────────────────────────────────────────────
+components:
+
+  # ── Security ──────────────────────────────
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token obtained via /auth/login
+
+  # ── Parameters ────────────────────────────
+  parameters:
+    Page:
+      name: page
+      in: query
+      description: Zero-based page index
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+
+    Size:
+      name: size
+      in: query
+      description: Number of items per page
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 200
+
+    Sort:
+      name: sort
+      in: query
+      description: "Sort expression: field,asc or field,desc"
+      schema:
+        type: string
+        example: createdAt,desc
+
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    TeamId:
+      name: teamId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    FolderId:
+      name: folderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  # ── Responses ─────────────────────────────
+  responses:
+    BadRequest:
+      description: Bad request – validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: "VALIDATION_ERROR"
+            message: "Request validation failed"
+            details:
+              - field: "email"
+                issue: "must be a valid email address"
+
+    Unauthorized:
+      description: Unauthorized – missing or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: "UNAUTHORIZED"
+            message: "Authentication required"
+
+    Forbidden:
+      description: Forbidden – insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: "FORBIDDEN"
+            message: "You do not have permission to perform this action"
+
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: "NOT_FOUND"
+            message: "The requested resource was not found"
+
+    Conflict:
+      description: Conflict – resource already exists
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: "CONFLICT"
+            message: "A resource with this identifier already exists"
+
+    PayloadTooLarge:
+      description: File exceeds maximum allowed size
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            code: "FILE_TOO_LARGE"
+            message: "File exceeds the maximum allowed size of 5 GB"
+
+  # ── Schemas ───────────────────────────────
+  schemas:
+
+    # ── Primitives & Wrappers ──────────────
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: Human-readable error message
+          example: Request validation failed
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorDetail'
+        traceId:
+          type: string
+          description: Distributed trace identifier
+          example: 4bf92f3577b34da6a3ce929d0e0e4736
+
+    ErrorDetail:
+      type: object
+      properties:
+        field:
+          type: string
+        issue:
+          type: string
+
+    PageMeta:
+      type: object
+      required: [page, size, totalElements, totalPages]
+      properties:
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        totalElements:
+          type: integer
+          format: int64
+          example: 142
+        totalPages:
+          type: integer
+          example: 8
+
+    # ── Auth ──────────────────────────────
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: alice@acme.com
+        password:
+          type: string
+          format: password
+          minLength: 8
+          example: "S3cur3P@ss!"
+        tenantId:
+          type: string
+          format: uuid
+          description: Required for multi-tenant disambiguation if email is in multiple tenants
+
+    LogoutRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    RefreshTokenRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [accessToken, refreshToken, expiresIn, tokenType]
+      properties:
+        accessToken:
+          type: string
+          description: JWT access token (short-lived)
+        refreshToken:
+          type: string
+          description: Opaque refresh token (long-lived)
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds
+          example: 900
+        tokenType:
+          type: string
+          example: Bearer
+        user:
+          $ref: '#/components/schemas/UserSummary'
+
+    RegisterUserRequest:
+      type: object
+      required: [email, firstName, lastName, role]
+      properties:
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        role:
+          type: string
+          enum: [admin, manager, editor, viewer]
+        teamIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        sendInviteEmail:
+          type: boolean
+          default: true
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          format: password
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+
+    # ── Users ─────────────────────────────
+
+    UserSummary:
+      type: object
+      required: [id, email, firstName, lastName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+
+    UserResponse:
+      allOf:
+        - $ref: '#/components/schemas/UserSummary'
+        - type: object
+          properties:
+            roles:
+              type: array
+              items:
+                type: string
+                enum: [admin, manager, editor, viewer]
+            status:
+              type: string
+              enum: [active, inactive, pending]
+            tenantId:
+              type: string
+              format: uuid
+            teams:
+              type: array
+              items:
+                $ref: '#/components/schemas/TeamSummary'
+            lastLoginAt:
+              type: string
+              format: date-time
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+
+    UserPageResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserResponse'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+          maxLength: 100
+        lastName:
+          type: string
+          maxLength: 100
+        status:
+          type: string
+          enum: [active, inactive]
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        avatar:
+          type: string
+          format: binary
+          description: Profile picture file
+
+    AssignRolesRequest:
+      type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [admin, manager, editor, viewer]
+
+    # ── Teams ─────────────────────────────
+
+    TeamSummary:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+
+    TeamResponse:
+      allOf:
+        - $ref: '#/components/schemas/TeamSummary'
+        - type: object
+          properties:
+            description:
+              type: string
+              nullable: true
+            memberCount:
+              type: integer
+            createdBy:
+              $ref: '#/components/schemas/UserSummary'
+            tenantId:
+              type: string
+              format: uuid
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+
+    TeamPageResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamResponse'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    CreateTeamRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 150
+        description:
+          type: string
+          maxLength: 1000
+
+    UpdateTeamRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 150
+        description:
+          type: string
+
+    TeamMembersRequest:
+      type: object
+      required: [userIds]
+      properties:
+        userIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+
+    # ── Files ─────────────────────────────
+
+    FileResponse:
+      type: object
+      required: [id, name, mimeType, size, folderId, ownerId, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Q4-Report.pdf
+        mimeType:
+          type: string
+          example: application/pdf
+        extension:
+          type: string
+          example: pdf
+        size:
+          type: integer
+          format: int64
+          description: File size in bytes
+          example: 2097152
+        folderId:
+          type: string
+          format: uuid
+          nullable: true
+        path:
+          type: string
+          description: Full logical path
+          example: /Finance/2024/Q4-Report.pdf
+        ownerId:
+          type: string
+          format: uuid
+        owner:
+          $ref: '#/components/schemas/UserSummary'
+        status:
+          type: string
+          enum: [active, trashed, archived]
+        currentVersion:
+          type: integer
+          example: 3
+        tags:
+          type: array
+          items:
+            type: string
+          example: [finance, quarterly, approved]
+        checksum:
+          type: string
+          description: MD5 or SHA-256 checksum
+          example: "d41d8cd98f00b204e9800998ecf8427e"
+        previewAvailable:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    FileUploadRequest:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: File content
+        folderId:
+          type: string
+          format: uuid
+          description: Target folder; root if omitted
+        tags:
+          type: string
+          description: Comma-separated tags
+          example: finance,2024
+        description:
+          type: string
+          maxLength: 2000
+
+    BulkFileUploadRequest:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            type: string
+            format: binary
+          description: Multiple file binaries
+        folderId:
+          type: string
+          format: uuid
+
+    BulkUploadResponse:
+      type: object
+      properties:
+        succeeded:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileResponse'
+        failed:
+          type: array
+          items:
+            type: object
+            properties:
+              fileName:
+                type: string
+              error:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    BulkDownloadRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [id, type]
+            properties:
+              id:
+                type: string
+                format: uuid
+              type:
+                type: string
+                enum: [file, folder]
+        archiveName:
+          type: string
+          example: export-2024.zip
+
+    FileVersionResponse:
+      type: object
+      required: [id, fileId, version, size, createdBy, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        size:
+          type: integer
+          format: int64
+        checksum:
+          type: string
+        comment:
+          type: string
+        createdBy:
+          $ref: '#/components/schemas/UserSummary'
+        createdAt:
+          type: string
+          format: date-time
+
+    FileVersionPageResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileVersionResponse'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    FileVersionUploadRequest:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+        comment:
+          type: string
+          maxLength: 500
+
+    TagsRequest:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+          example: [finance, approved]
+
+    RenameRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+
+    MoveRequest:
+      type: object
+      required: [targetFolderId]
+      properties:
+        targetFolderId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Destination folder ID; null for root
+
+    CopyRequest:
+      type: object
+      required: [targetFolderId]
+      properties:
+        targetFolderId:
+          type: string
+          format: uuid
+          nullable: true
+        newName:
+          type: string
+          description: Optional rename on copy
+
+    # ── Folders ───────────────────────────
+
+    FolderResponse:
+      type: object
+      required: [id, name, ownerId, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        path:
+          type: string
+          example: /Finance/2024
+        ownerId:
+          type: string
+          format: uuid
+        owner:
+          $ref: '#/components/schemas/UserSummary'
+        status:
+          type: string
+          enum: [active, trashed]
+        fileCount:
+          type: integer
+        folderCount:
+          type: integer
+        totalSize:
+          type: integer
+          format: int64
+          description: Total size of contents in bytes
+        tags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateFolderRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Parent folder; null for root
+        tags:
+          type: array
+          items:
+            type: string
+
+    # ── Explorer ──────────────────────────
+
+    DirectoryItem:
+      type: object
+      required: [id, type, name, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [file, folder]
+        name:
+          type: string
+        mimeType:
+          type: string
+          nullable: true
+        size:
+          type: integer
+          format: int64
+          nullable: true
+        owner:
+          $ref: '#/components/schemas/UserSummary'
+        tags:
+          type: array
+          items:
+            type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    DirectoryResponse:
+      type: object
+      properties:
+        folder:
+          allOf:
+            - $ref: '#/components/schemas/FolderResponse'
+          nullable: true
+          description: Current folder metadata; null if listing root
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DirectoryItem'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    BreadcrumbItem:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        isRoot:
+          type: boolean
+
+    BreadcrumbResponse:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: array
+          items:
+            $ref: '#/components/schemas/BreadcrumbItem'
+          example:
+            - id: "00000000-0000-0000-0000-000000000000"
+              name: "Root"
+              isRoot: true
+            - id: "aabb1234-0000-0000-0000-000000000000"
+              name: "Finance"
+              isRoot: false
+            - id: "ccdd5678-0000-0000-0000-000000000000"
+              name: "2024"
+              isRoot: false
+
+    SearchResult:
+      type: object
+      required: [id, type, name, path, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [file, folder]
+        name:
+          type: string
+        path:
+          type: string
+        mimeType:
+          type: string
+          nullable: true
+        owner:
+          $ref: '#/components/schemas/UserSummary'
+        tags:
+          type: array
+          items:
+            type: string
+        highlight:
+          type: string
+          description: Snippet of matched content with highlights
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+
+    SearchResultPageResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    # ── Sharing ───────────────────────────
+
+    CreateShareRequest:
+      type: object
+      required: [resourceType, resourceId, principals]
+      properties:
+        resourceType:
+          type: string
+          enum: [file, folder]
+        resourceId:
+          type: string
+          format: uuid
+        principals:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/SharePrincipal'
+        notifyRecipients:
+          type: boolean
+          default: true
+        message:
+          type: string
+          maxLength: 1000
+
+    SharePrincipal:
+      type: object
+      required: [principalType, principalId, permission]
+      properties:
+        principalType:
+          type: string
+          enum: [user, team]
+        principalId:
+          type: string
+          format: uuid
+        permission:
+          type: string
+          enum: [read, write, admin]
+
+    ShareResponse:
+      type: object
+      properties:
+        resourceType:
+          type: string
+          enum: [file, folder]
+        resourceId:
+          type: string
+          format: uuid
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/AclEntryResponse'
+
+    AclEntryResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        principalType:
+          type: string
+          enum: [user, team]
+        principalId:
+          type: string
+          format: uuid
+        principalName:
+          type: string
+        permission:
+          type: string
+          enum: [read, write, admin]
+        grantedBy:
+          $ref: '#/components/schemas/UserSummary'
+        grantedAt:
+          type: string
+          format: date-time
+
+    AclResponse:
+      type: object
+      properties:
+        resourceType:
+          type: string
+          enum: [file, folder]
+        resourceId:
+          type: string
+          format: uuid
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/AclEntryResponse'
+
+    UpdatePermissionRequest:
+      type: object
+      required: [permission]
+      properties:
+        permission:
+          type: string
+          enum: [read, write, admin]
+
+    PublicLinkRequest:
+      type: object
+      required: [resourceType, resourceId]
+      properties:
+        resourceType:
+          type: string
+          enum: [file, folder]
+        resourceId:
+          type: string
+          format: uuid
+        permission:
+          type: string
+          enum: [read, write]
+          default: read
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Expiry time; null for no expiry
+        password:
+          type: string
+          description: Optional link password
+        maxDownloads:
+          type: integer
+          description: Maximum number of uses; null for unlimited
+          nullable: true
+
+    PublicLinkResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        url:
+          type: string
+          format: uri
+          example: https://app.dms.example.com/share/AbCdEfGh
+        permission:
+          type: string
+          enum: [read, write]
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    # ── Workflows ─────────────────────────
+
+    WorkflowStep:
+      type: object
+      required: [order, name, approverType, approverId]
+      properties:
+        order:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          maxLength: 150
+        approverType:
+          type: string
+          enum: [user, team, role]
+        approverId:
+          type: string
+          format: uuid
+        requireAllMembers:
+          type: boolean
+          default: false
+          description: For team approvers; require unanimous approval
+        deadlineHours:
+          type: integer
+          nullable: true
+
+    CreateWorkflowTemplateRequest:
+      type: object
+      required: [name, steps]
+      properties:
+        name:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+        steps:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/WorkflowStep'
+        isDefault:
+          type: boolean
+          default: false
+
+    WorkflowTemplateResponse:
+      allOf:
+        - $ref: '#/components/schemas/CreateWorkflowTemplateRequest'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            tenantId:
+              type: string
+              format: uuid
+            createdBy:
+              $ref: '#/components/schemas/UserSummary'
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+
+    WorkflowTemplatePageResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowTemplateResponse'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    CreateWorkflowRequest:
+      type: object
+      required: [fileId, templateId]
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        templateId:
+          type: string
+          format: uuid
+        title:
+          type: string
+          maxLength: 255
+        dueDate:
+          type: string
+          format: date-time
+          nullable: true
+
+    WorkflowSubmitRequest:
+      type: object
+      properties:
+        comment:
+          type: string
+          maxLength: 2000
+
+    WorkflowDecisionRequest:
+      type: object
+      properties:
+        comment:
+          type: string
+          maxLength: 2000
+
+    WorkflowStepInstance:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        order:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, approved, rejected, skipped]
+        approver:
+          $ref: '#/components/schemas/UserSummary'
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        dueAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    WorkflowInstanceResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, approved, rejected, cancelled]
+        file:
+          $ref: '#/components/schemas/FileResponse'
+        template:
+          $ref: '#/components/schemas/WorkflowTemplateResponse'
+        initiatedBy:
+          $ref: '#/components/schemas/UserSummary'
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowStepInstance'
+        currentStep:
+          type: integer
+          nullable: true
+        dueDate:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    WorkflowInstancePageResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowInstanceResponse'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    WorkflowHistoryEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          enum: [created, submitted, approved, rejected, cancelled, step_assigned, reminded]
+        actor:
+          $ref: '#/components/schemas/UserSummary'
+        stepName:
+          type: string
+          nullable: true
+        comment:
+          type: string
+          nullable: true
+        occurredAt:
+          type: string
+          format: date-time
+
+    WorkflowHistoryPageResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowHistoryEvent'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    # ── Audit ─────────────────────────────
+
+    AuditLogEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          example: file.download
+        actor:
+          $ref: '#/components/schemas/UserSummary'
+        resourceType:
+          type: string
+          enum: [file, folder, user, team, workflow, share, auth, system]
+        resourceId:
+          type: string
+          format: uuid
+          nullable: true
+        resourceName:
+          type: string
+          nullable: true
+        ipAddress:
+          type: string
+          example: 203.0.113.42
+        userAgent:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional context specific to the action
+        occurredAt:
+          type: string
+          format: date-time
+
+    AuditLogPageResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogEntry'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    # ── Analytics ─────────────────────────
+
+    StorageStatsResponse:
+      type: object
+      properties:
+        totalQuotaBytes:
+          type: integer
+          format: int64
+        usedBytes:
+          type: integer
+          format: int64
+        availableBytes:
+          type: integer
+          format: int64
+        usedPercent:
+          type: number
+          format: double
+        trashBytes:
+          type: integer
+          format: int64
+        fileCount:
+          type: integer
+          format: int64
+        folderCount:
+          type: integer
+          format: int64
+        byUser:
+          type: array
+          items:
+            type: object
+            properties:
+              user:
+                $ref: '#/components/schemas/UserSummary'
+              usedBytes:
+                type: integer
+                format: int64
+
+    ActivitySummaryResponse:
+      type: object
+      properties:
+        period:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+        uploads:
+          type: integer
+        downloads:
+          type: integer
+        shares:
+          type: integer
+        deletions:
+          type: integer
+        activeUsers:
+          type: integer
+        dailySeries:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              uploads:
+                type: integer
+              downloads:
+                type: integer
+
+    FileTypeStatsResponse:
+      type: object
+      properties:
+        distribution:
+          type: array
+          items:
+            type: object
+            properties:
+              mimeType:
+                type: string
+              extension:
+                type: string
+              count:
+                type: integer
+              totalBytes:
+                type: integer
+                format: int64
+              percentage:
+                type: number
+                format: double
+
+    WorkflowMetricsResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        pending:
+          type: integer
+        inProgress:
+          type: integer
+        approved:
+          type: integer
+        rejected:
+          type: integer
+        cancelled:
+          type: integer
+        avgCompletionHours:
+          type: number
+          format: double
+        overdueCount:
+          type: integer
+
+    # ── Notifications ─────────────────────
+
+    NotificationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [share, workflow_assigned, workflow_approved, workflow_rejected, mention, system]
+        title:
+          type: string
+        body:
+          type: string
+        read:
+          type: boolean
+        resourceType:
+          type: string
+          nullable: true
+        resourceId:
+          type: string
+          format: uuid
+          nullable: true
+        actionUrl:
+          type: string
+          format: uri
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    NotificationPageResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationResponse'
+        meta:
+          $ref: '#/components/schemas/PageMeta'
+
+    # ── Admin ─────────────────────────────
+
+    TenantResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+          description: URL-safe identifier
+        logoUrl:
+          type: string
+          format: uri
+          nullable: true
+        primaryColor:
+          type: string
+          nullable: true
+        defaultUserRole:
+          type: string
+          enum: [admin, manager, editor, viewer]
+        ssoEnabled:
+          type: boolean
+        ssoProvider:
+          type: string
+          nullable: true
+        mfaRequired:
+          type: boolean
+        status:
+          type: string
+          enum: [active, suspended, trialing]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UpdateTenantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        logoUrl:
+          type: string
+          format: uri
+        primaryColor:
+          type: string
+        defaultUserRole:
+          type: string
+          enum: [admin, manager, editor, viewer]
+        mfaRequired:
+          type: boolean
+        ssoEnabled:
+          type: boolean
+        ssoProvider:
+          type: string
+          nullable: true
+        ssoConfig:
+          type: object
+          additionalProperties: true
+
+    QuotaResponse:
+      type: object
+      properties:
+        tenantId:
+          type: string
+          format: uuid
+        totalQuotaBytes:
+          type: integer
+          format: int64
+        usedBytes:
+          type: integer
+          format: int64
+        maxFileSizeBytes:
+          type: integer
+          format: int64
+        maxUsersAllowed:
+          type: integer
+        currentUserCount:
+          type: integer
+
+    UpdateQuotaRequest:
+      type: object
+      properties:
+        totalQuotaBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        maxFileSizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        maxUsersAllowed:
+          type: integer
+          minimum: 1
+
+    SystemSettingsResponse:
+      type: object
+      properties:
+        maintenanceMode:
+          type: boolean
+        registrationEnabled:
+          type: boolean
+        defaultLanguage:
+          type: string
+          example: en
+        sessionTimeoutMinutes:
+          type: integer
+        refreshTokenTtlDays:
+          type: integer
+        versioningEnabled:
+          type: boolean
+        maxVersionsPerFile:
+          type: integer
+        trashRetentionDays:
+          type: integer
+        previewEnabled:
+          type: boolean
+        auditRetentionDays:
+          type: integer
+
+    UpdateSystemSettingsRequest:
+      type: object
+      properties:
+        maintenanceMode:
+          type: boolean
+        registrationEnabled:
+          type: boolean
+        defaultLanguage:
+          type: string
+        sessionTimeoutMinutes:
+          type: integer
+          minimum: 5
+        refreshTokenTtlDays:
+          type: integer
+          minimum: 1
+        versioningEnabled:
+          type: boolean
+        maxVersionsPerFile:
+          type: integer
+          minimum: 1
+          maximum: 100
+        trashRetentionDays:
+          type: integer
+          minimum: 0
+        previewEnabled:
+          type: boolean
+        auditRetentionDays:
+          type: integer
+          minimum: 30
+
+    AllowedFileTypesResponse:
+      type: object
+      properties:
+        allowAll:
+          type: boolean
+          description: If true, all file types are allowed and the lists below are ignored
+        allowedMimeTypes:
+          type: array
+          items:
+            type: string
+          example: [application/pdf, image/png, image/jpeg, application/msword]
+        allowedExtensions:
+          type: array
+          items:
+            type: string
+          example: [pdf, png, jpg, docx, xlsx]
+        blockedMimeTypes:
+          type: array
+          items:
+            type: string
+          example: [application/x-executable]
+
+    UpdateAllowedFileTypesRequest:
+      type: object
+      properties:
+        allowAll:
+          type: boolean
+        allowedMimeTypes:
+          type: array
+          items:
+            type: string
+        allowedExtensions:
+          type: array
+          items:
+            type: string
+        blockedMimeTypes:
+          type: array
+          items:
+            type: string

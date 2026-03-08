@@ -19,3 +19,14 @@ type Content struct {
 	CreatedAt    time.Time          `bson:"createdAt,omitempty" json:"createdAt,omitempty"`
 	UpdatedAt    time.Time          `bson:"updatedAt,omitempty" json:"updatedAt,omitempty"`
 }
+
+// OpenSearchIndexDocument represents a searchable document in the OpenSearch index
+type OpenSearchIndexDocument struct {
+	ID            string    `json:"id"` // MongoDB ObjectID
+	Filename      string    `json:"filename"`
+	ContentType   string    `json:"contentType"`
+	ExtractedText string    `json:"extractedText"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+	FileSize      int64     `json:"fileSize"`
+}

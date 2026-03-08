@@ -2,12 +2,12 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
 	"file_storage/pkg/api"
 
-	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -96,7 +96,8 @@ func (r *MongoContentRepository) Update(id primitive.ObjectID, filter api.Filter
 		"lastModified": content.LastModified,
 		"updatedAt":    content.UpdatedAt,
 	}
-	update := bson.M{"$set": set}
+	log.Println(baseFilter, set)
+	update := bson.M{"$set": content}
 	_, err := r.coll().UpdateOne(r.ctx, baseFilter, update)
 	if err != nil {
 		return nil, err
@@ -110,7 +111,12 @@ func (r *MongoContentRepository) FindAll() ([]api.Content, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer cur.Close(r.ctx)
+	defer func(cur *mongo.Cursor, ctx context.Context) {
+		err := cur.Close(ctx)
+		if err != nil {
+			log.Println(err)
+		}
+	}(cur, r.ctx)
 	var out []api.Content
 	for cur.Next(r.ctx) {
 		var c api.Content
@@ -123,11 +129,11 @@ func (r *MongoContentRepository) FindAll() ([]api.Content, error) {
 }
 
 // FindById finds a content by its UUID (legacy compatibility). New records use ObjectID.
-func (r *MongoContentRepository) FindById(id uuid.UUID) (*api.Content, error) {
+func (r *MongoContentRepository) FindById(id primitive.ObjectID) (*api.Content, error) {
 	var c api.Content
-	// Try string _id in case legacy string IDs were used
-	err := r.coll().FindOne(r.ctx, bson.M{"_id": id.String()}).Decode(&c)
-	if err == mongo.ErrNoDocuments {
+	// Find by _id as ObjectId
+	err := r.coll().FindOne(r.ctx, bson.M{"_id": id}).Decode(&c)
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, nil
 	}
 	if err != nil {
@@ -147,6 +153,41 @@ func (r *MongoContentRepository) FindByParentId(parentId string) (*api.Content, 
 		return nil, err
 	}
 	return &c, nil
+}
+
+// FindByIds finds multiple contents by their ObjectIDs
+func (r *MongoContentRepository) FindByIds(ids []string) ([]api.Content, error) {
+	if len(ids) == 0 {
+		return []api.Content{}, nil
+	}
+
+	// Convert string IDs to ObjectIDs
+	objectIds := make([]primitive.ObjectID, len(ids))
+	for i, id := range ids {
+		oid, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			log.Printf("invalid ObjectID format: %s", id)
+			continue
+		}
+		objectIds[i] = oid
+	}
+
+	filter := bson.M{"_id": bson.M{"$in": objectIds}}
+	cur, err := r.coll().Find(r.ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	defer cur.Close(r.ctx)
+
+	var out []api.Content
+	for cur.Next(r.ctx) {
+		var c api.Content
+		if err := cur.Decode(&c); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, cur.Err()
 }
 
 // EnsureIndexes creates helpful indexes for performance.
