@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"file_storage/pkg/api"
 	"fmt"
 	"io"
 	"log"
@@ -142,16 +141,16 @@ func (s *OpenSearchService) indexExists(ctx context.Context) (bool, error) {
 }
 
 // IndexDocument adds or updates a document in the search index
-func (s *OpenSearchService) IndexDocument(ctx context.Context, doc *api.OpenSearchIndexDocument) error {
-	body, err := json.Marshal(doc)
+func (s *OpenSearchService) IndexDocument(ctx context.Context, doc *OpenSearchIndexDocument) error {
+	bodyBytes, err := json.Marshal(doc)
 	if err != nil {
-		return fmt.Errorf("failed to marshal document: %w", err)
+		return err
 	}
 
 	req := opensearchapi.IndexRequest{
 		Index:      s.indexName,
 		DocumentID: doc.ID,
-		Body:       bytes.NewReader(body),
+		Body:       bytes.NewReader(bodyBytes),
 	}
 
 	resp, err := req.Do(ctx, s.client)
@@ -168,7 +167,7 @@ func (s *OpenSearchService) IndexDocument(ctx context.Context, doc *api.OpenSear
 }
 
 // IndexDocumentWithExtraction extracts text from reader and indexes the document
-func (s *OpenSearchService) IndexDocumentWithExtraction(ctx context.Context, doc *api.OpenSearchIndexDocument, reader io.ReadCloser) error {
+func (s *OpenSearchService) IndexDocumentWithExtraction(ctx context.Context, doc *OpenSearchIndexDocument, reader io.ReadCloser) error {
 	// Extract text from file
 	extractedText, err := ExtractTextFromFile(reader, doc.ContentType)
 	if err != nil {
@@ -185,7 +184,7 @@ func (s *OpenSearchService) IndexDocumentWithExtraction(ctx context.Context, doc
 }
 
 // SearchByKeyword searches for documents matching the keyword
-func (s *OpenSearchService) SearchByKeyword(ctx context.Context, keyword string, limit int) ([]api.SearchResult, error) {
+func (s *OpenSearchService) SearchByKeyword(ctx context.Context, keyword string, limit int) ([]SearchResult, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -241,9 +240,9 @@ func (s *OpenSearchService) SearchByKeyword(ctx context.Context, keyword string,
 	var result struct {
 		Hits struct {
 			Hits []struct {
-				ID     string                      `json:"_id"`
-				Score  float64                     `json:"_score"`
-				Source api.OpenSearchIndexDocument `json:"_source"`
+				ID     string                  `json:"_id"`
+				Score  float64                 `json:"_score"`
+				Source OpenSearchIndexDocument `json:"_source"`
 			} `json:"hits"`
 		} `json:"hits"`
 	}
@@ -252,9 +251,9 @@ func (s *OpenSearchService) SearchByKeyword(ctx context.Context, keyword string,
 		return nil, fmt.Errorf("failed to decode search response: %w", err)
 	}
 
-	results := make([]api.SearchResult, len(result.Hits.Hits))
+	results := make([]SearchResult, len(result.Hits.Hits))
 	for i, hit := range result.Hits.Hits {
-		results[i] = api.SearchResult{
+		results[i] = SearchResult{
 			ID:       hit.Source.ID,
 			Score:    hit.Score,
 			Filename: hit.Source.Filename,

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"file_storage/pkg/storage"
 	"io"
 	"time"
 )
@@ -9,7 +10,7 @@ import (
 // StorageService abstracts storage operations so implementations can vary (MinIO, S3, etc.).
 type StorageService interface {
 	// StreamDocument returns a ReadCloser to stream object content; caller must close.
-	StreamDocument(ctx context.Context, name string) (io.ReadCloser, Content, error)
+	StreamDocument(ctx context.Context, name string) (io.ReadCloser, storage.Content, error)
 	// GetPresignedURL returns a presigned URL for direct access.
 	GetPresignedURL(ctx context.Context, name string, expiry time.Duration) (string, error)
 	// UploadDocument uploads content stream to storage under the given name and returns ETag and last-modified.

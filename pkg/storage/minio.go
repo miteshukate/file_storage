@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"file_storage/pkg/api"
-
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -63,22 +61,44 @@ func NewMinioDocumentService() *MinioDocumentService {
 	if err != nil {
 		log.Fatalf("failed to create minio client: %v", err)
 	}
-	return &MinioDocumentService{client: client, bucket: bucket, prefix: prefix}
+
+	svc := &MinioDocumentService{client: client, bucket: bucket, prefix: prefix}
+	if err := svc.ensureBucket(context.Background()); err != nil {
+		log.Fatalf("failed to ensure minio bucket %q: %v", bucket, err)
+	}
+	return svc
+}
+
+// ensureBucket creates the bucket if it does not already exist.
+func (s *MinioDocumentService) ensureBucket(ctx context.Context) error {
+	exists, err := s.client.BucketExists(ctx, s.bucket)
+	if err != nil {
+		return fmt.Errorf("BucketExists: %w", err)
+	}
+	if exists {
+		return nil
+	}
+	log.Printf("minio: bucket %q not found, creating...", s.bucket)
+	if err := s.client.MakeBucket(ctx, s.bucket, minio.MakeBucketOptions{}); err != nil {
+		return fmt.Errorf("MakeBucket: %w", err)
+	}
+	log.Printf("minio: bucket %q created", s.bucket)
+	return nil
 }
 
 // StreamDocument returns a reader for the object and its metadata.
-func (s *MinioDocumentService) StreamDocument(ctx context.Context, name string) (io.ReadCloser, api.Content, error) {
+func (s *MinioDocumentService) StreamDocument(ctx context.Context, name string) (io.ReadCloser, Content, error) {
 	obj, err := s.client.GetObject(ctx, s.bucket, s.effectiveKey(name), minio.GetObjectOptions{})
 	if err != nil {
-		return nil, api.Content{}, err
+		return nil, Content{}, err
 	}
 
 	st, err := obj.Stat()
 	if err != nil {
 		_ = obj.Close()
-		return nil, api.Content{}, err
+		return nil, Content{}, err
 	}
-	md := api.Content{
+	md := Content{
 		Name:         st.Key,
 		Size:         st.Size,
 		ETag:         st.ETag,
@@ -114,8 +134,8 @@ func (s *MinioDocumentService) effectiveKey(name string) string {
 	return fmt.Sprintf("%s/%s", s.prefix, name)
 }
 
-func (s *MinioDocumentService) ListDocuments(ctx context.Context) ([]api.Content, error) {
-	return make([]api.Content, 0), nil
+func (s *MinioDocumentService) ListDocuments(ctx context.Context) ([]Content, error) {
+	return make([]Content, 0), nil
 }
 
 // UploadDocument uploads content to MinIO and returns the server-side ETag and last-modified time if available.

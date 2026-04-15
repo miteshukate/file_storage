@@ -2,6 +2,7 @@ package security
 
 import (
 	"context"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Principal represents the authenticated user/session.
@@ -22,6 +23,16 @@ type Decision struct {
 type Authenticator interface {
 	Authenticate(ctx context.Context, token string) (*Principal, error)
 	GenerateToken(ctx context.Context, user interface{}) (string, error)
+	GenerateRefreshToken(ctx context.Context, user interface{}) (string, error)
+}
+
+type CustomClaims struct {
+	jwt.RegisteredClaims
+	UserID       int64    `json:"user_id"`
+	Email        string   `json:"email"`
+	Roles        []string `json:"roles"`
+	TokenVersion int      `json:"token_version"` // Used for revocation
+	TokenType    string   `json:"token_type"`    // "access" or "refresh"
 }
 
 // Authorizer decides whether a principal may perform an action on a resource.

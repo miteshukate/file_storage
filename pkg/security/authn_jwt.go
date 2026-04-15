@@ -5,101 +5,119 @@ import (
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"log"
 	"strings"
+	"time"
 )
 
 type JWTAuthenticator struct {
-	secret   string
-	issuer   string
-	audience string
+	config JwtConfig
 }
 
-func NewJWTAuthenticator(secret string, issuer string, audience string) *JWTAuthenticator {
+func (a *JWTAuthenticator) GenerateRefreshToken(ctx context.Context, user interface{}) (string, error) {
+	refreshTTL := a.config.RefreshTokenTTL
+	if refreshTTL <= 0 {
+		refreshTTL = 7 * 24 * time.Hour
+	}
+	secret := a.config.RefreshTokenSecret
+	if len(secret) == 0 {
+		secret = []byte("default_refresh_secret")
+	}
+	claims := jwt.MapClaims{
+		"sub":  user.(map[string]any)["id"],
+		"exp":  jwt.NewNumericDate(time.Now().Add(refreshTTL)),
+		"type": "refresh",
+	}
+	if a.config.TokenIssuer != "" {
+		claims["iss"] = a.config.TokenIssuer
+	}
+	if a.config.TokenAudience != nil && len(a.config.TokenAudience) > 0 {
+		claims["aud"] = a.config.TokenAudience
+	}
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return refreshToken.SignedString(secret)
+}
+
+func NewJWTAuthenticator(config JwtConfig) *JWTAuthenticator {
 	return &JWTAuthenticator{
-		secret:   secret,
-		issuer:   issuer,
-		audience: audience,
+		config: config,
 	}
 }
 
 func (a *JWTAuthenticator) GenerateToken(ctx context.Context, user interface{}) (string, error) {
-	// Generate JWT token for the given user (customize claims as needed)
-	claims := jwt.MapClaims{
-		"sub":   user.(map[string]any)["id"],
-		"name":  user.(map[string]any)["name"],
-		"roles": user.(map[string]any)["roles"],
-		"attrs": user.(map[string]any)["attrs"],
+	now := time.Now()
+	tokenID := uuid.New().String()
+	accessTTL := a.config.AccessTokenTTL
+	if accessTTL <= 0 {
+		accessTTL = 15 * time.Minute
 	}
-	if a.issuer != "" {
-		claims["iss"] = a.issuer
+	secret := a.config.AccessTokenSecret
+	if len(secret) == 0 {
+		secret = []byte("default_access_secret")
 	}
-	if a.audience != "" {
-		claims["aud"] = a.audience
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(a.secret))
-}
 
-func NewJWTAuthenticatorHS256(secret, issuer, audience string) (*JWTAuthenticator, error) {
-	if secret == "" {
-		return nil, errors.New("secret is required for JWT authenticator")
+	customClaims := CustomClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        tokenID,
+			Subject:   user.(map[string]any)["email"].(string),
+			Issuer:    a.config.TokenIssuer,
+			Audience:  a.config.TokenAudience,
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(accessTTL)),
+		},
+		UserID:       user.(map[string]any)["id"].(int64),
+		Email:        user.(map[string]any)["email"].(string),
+		Roles:        user.(map[string]any)["roles"].([]string),
+		TokenVersion: 0,
+		TokenType:    "access",
 	}
-	return &JWTAuthenticator{
-		secret:   secret,
-		issuer:   issuer,
-		audience: audience,
-	}, nil
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, customClaims)
+	return token.SignedString(secret)
 }
 
 func (a *JWTAuthenticator) Authenticate(ctx context.Context, token string) (*Principal, error) {
 	// validate and parse JWT token
-	claims, err := jwt.ParseWithClaims(token, &jwt.MapClaims{}, func(token *jwt.Token) (interface{}, error) {
+	claims := &CustomClaims{}
+	secret := a.config.AccessTokenSecret
+	if len(secret) == 0 {
+		secret = []byte("default_access_secret")
+	}
+	parsedToken, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
-		return []byte(a.secret), nil
+		return secret, nil
 	})
 	if err != nil {
+		log.Println(err)
 		return nil, err
 	}
-	if !claims.Valid {
+	if !parsedToken.Valid {
 		return nil, errors.New("invalid token")
 	}
-	mapClaims, _ := claims.Claims.(*jwt.MapClaims)
-	// validate issuer and audience
-	if a.issuer != "" && (*mapClaims)["iss"] != a.issuer {
+
+	if a.config.TokenIssuer != "" && claims.Issuer != a.config.TokenIssuer {
 		return nil, errors.New("invalid issuer")
 	}
-	if a.audience != "" {
-		audClaim, ok := (*mapClaims)["aud"].(string)
-		if !ok || audClaim != a.audience {
+	if len(a.config.TokenAudience) > 0 {
+		found := false
+		for _, aud := range claims.Audience {
+			if aud == a.config.TokenAudience[0] {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return nil, errors.New("invalid audience")
 		}
 	}
 
-	// Extract user info from claims (customize as needed)
-	var attrs = map[string]any{}
-	if attrsVal, ok := (*mapClaims)["attrs"]; ok && attrsVal != nil {
-		attrs = attrsVal.(map[string]any)
-	}
-
-	// Convert roles from []interface{} to []string
-	var roles []string
-	if rolesVal, ok := (*mapClaims)["roles"]; ok && rolesVal != nil {
-		if rolesSlice, ok := rolesVal.([]interface{}); ok {
-			for _, role := range rolesSlice {
-				if roleStr, ok := role.(string); ok {
-					roles = append(roles, roleStr)
-				}
-			}
-		}
-	}
-
 	principal := &Principal{
-		ID:         (*mapClaims)["sub"].(string),
-		Name:       (*mapClaims)["name"].(string),
-		Roles:      roles,
-		Attributes: attrs,
+		ID:    claims.Subject,
+		Name:  claims.Email,
+		Roles: claims.Roles,
 	}
 	return principal, nil
 }

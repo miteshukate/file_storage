@@ -3,13 +3,15 @@ package api
 import (
 	"context"
 	api "file_storage/pkg/api/controllers"
+	"file_storage/pkg/storage"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/google/uuid"
 	"io"
 	"log"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -43,15 +45,15 @@ func (fc *FileController) DeleteFile(c *gin.Context) {
 
 func (fc *FileController) DownloadFile(c *gin.Context) {
 	fileId := c.Param("fileId")
-	id, err := primitive.ObjectIDFromHex(fileId)
+	id, err := strconv.ParseInt(fileId, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid document ID"})
 		return
 	}
-	contents, err := fc.repository.FindByFilter(struct {
-		ID     primitive.ObjectID `bson:"_id"`
-		Status string             `bson:"status"`
-	}{ID: id, Status: "Active"})
+	contents, err := fc.repository.FindByFilter(map[string]interface{}{
+		"content_id": id,
+		"status":     "Active",
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -61,15 +63,13 @@ func (fc *FileController) DownloadFile(c *gin.Context) {
 		return
 	}
 
-	reader, meta, err := fc.storageService.StreamDocument(c.Request.Context(), contents[0].ID.Hex())
+	reader, meta, err := fc.storageService.StreamDocument(c.Request.Context(), strconv.FormatInt(contents[0].ID, 10))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	defer func() { _ = reader.Close() }()
-	// Set filename to original name
 
-	// Optional download hint
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", path.Base(contents[0].Name)))
 
 	c.Header("Content-Type", meta.ContentType)
@@ -86,24 +86,26 @@ func (fc *FileController) GetAllFiles(c *gin.Context) {
 
 func (fc *FileController) GetFile(c *gin.Context) {
 	// Get file id from path
-	id := c.Param("fileId")
-	// Get content metadata from repository
-	contentId, err := primitive.ObjectIDFromHex(id)
+	contentId := c.Param("fileId")
+	contentIdUUID, err := uuid.Parse(contentId)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file ID"})
 		return
 	}
-	content, err := fc.repository.FindById(contentId)
+	contentMap := map[string]interface{}{
+		"content_id": contentIdUUID,
+	}
+	contents, err := fc.repository.FindByFilter(contentMap)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if content == nil {
+	if len(contents) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return
 	}
 	// Convert to FileResponse and return
-	response := fc.ContentToFileResponse(content)
+	response := fc.ContentToFileResponse(&contents[0])
 	c.JSON(http.StatusOK, response)
 }
 
@@ -180,21 +182,27 @@ func (fc *FileController) UploadFile(c *gin.Context) {
 	size := fh.Size
 
 	parentId := c.PostForm("parentId")
-	var effectiveParent string
+	var effectiveParent *int64
 	if parentId != "" {
-		parentObjectId, err := primitive.ObjectIDFromHex(parentId)
-		if err != nil {
+		parentMap := map[string]interface{}{
+			"contentId": parentId,
+		}
+		parent, err := fc.repository.FindByFilter(parentMap)
+		if len(parent) > 1 || err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parentId: " + err.Error()})
 			return
 		}
-		effectiveParent = parentObjectId.Hex()
+		effectiveParent = &parent[0].ID
 	}
-	meta := Content{
+	//go uuid v7
+	contentId, _ := uuid.NewV7()
+	meta := storage.Content{
 		ParentID:     effectiveParent,
 		Name:         name,
 		Type:         c.DefaultPostForm("type", "file"),
 		Size:         size,
 		ContentType:  ctype,
+		ContentId:    contentId,
 		Status:       "Uploading",
 		LastModified: time.Now(),
 		CreatedAt:    time.Now(),
@@ -207,16 +215,15 @@ func (fc *FileController) UploadFile(c *gin.Context) {
 		return
 	}
 
-	etag, lastMod, err := fc.storageService.UploadDocument(c.Request.Context(), content.ID.Hex(), ctype, f, size)
+	etag, lastMod, err := fc.storageService.UploadDocument(c.Request.Context(), strconv.FormatInt(content.ID, 10), ctype, f, size)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	meta.ETag = etag
-	meta.LastModified = lastMod
-	meta.Status = "Active"
-	_, err = fc.repository.Update(meta.ID, struct {
-	}{}, &meta)
+	content.ETag = etag
+	content.LastModified = lastMod
+	content.Status = "Active"
+	_, err = fc.repository.Update(content.ID, content)
 
 	// Index document in OpenSearch for full-text search asynchronously
 	go fc.indexFileAsync(content)
@@ -225,19 +232,17 @@ func (fc *FileController) UploadFile(c *gin.Context) {
 	c.JSON(http.StatusCreated, response)
 }
 
-// GetDocument now returns the raw file bytes with appropriate headers.
-// GET /documents/:name?download=true
 func (fc *FileController) GetDocument(c *gin.Context) {
 	name := c.Param("name")
-	id, err := primitive.ObjectIDFromHex(name)
+	id, err := strconv.ParseInt(name, 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid document ID"})
 		return
 	}
-	contents, err := fc.repository.FindByFilter(struct {
-		ID     primitive.ObjectID `bson:"_id"`
-		Status string             `bson:"status"`
-	}{ID: id, Status: "Active"})
+	contents, err := fc.repository.FindByFilter(map[string]interface{}{
+		"content_id": id,
+		"status":     "Active",
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -247,7 +252,7 @@ func (fc *FileController) GetDocument(c *gin.Context) {
 		return
 	}
 
-	reader, meta, err := fc.storageService.StreamDocument(c.Request.Context(), contents[0].ID.Hex())
+	reader, meta, err := fc.storageService.StreamDocument(c.Request.Context(), strconv.FormatInt(contents[0].ID, 10))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -284,42 +289,46 @@ func (fc *FileController) StreamDocument(c *gin.Context) {
 }
 
 // ContentToFileResponse converts a Content object to FileResponse with default values for unknown fields
-func (fc *FileController) ContentToFileResponse(content *Content) api.FileResponse {
+func (fc *FileController) ContentToFileResponse(content *storage.Content) api.FileResponse {
 	// Extract file extension from name
 	extension := ""
 	if idx := strings.LastIndex(content.Name, "."); idx != -1 {
 		extension = content.Name[idx+1:]
 	}
 
+	idStr := strconv.FormatInt(content.ID, 10)
+
+	// Convert ParentID *int64 to *string for FolderId
+	var folderIdStr *string
+	if content.ParentID != nil {
+		s := strconv.FormatInt(*content.ParentID, 10)
+		folderIdStr = &s
+	}
+
 	// Create FileResponse with mapped values
 	response := api.FileResponse{
-		Id:               content.ID.Hex(),
+		Id:               idStr,
 		Name:             content.Name,
 		MimeType:         content.ContentType,
 		Extension:        extension,
 		Size:             content.Size,
-		FolderId:         nil,
-		Path:             content.ParentID, // Use ParentID as path; can be enhanced with full path logic
-		OwnerId:          content.ID.Hex(), // Default to file ID if owner not available
+		FolderId:         folderIdStr,
+		Path:             idStr,
+		OwnerId:          idStr,
 		Status:           content.Status,
-		CurrentVersion:   1,            // Default version
-		Tags:             []string{},   // Default empty tags
-		Checksum:         content.ETag, // Use ETag as checksum
-		PreviewAvailable: false,        // Default to false
+		CurrentVersion:   1,
+		Tags:             []string{},
+		Checksum:         content.ETag,
+		PreviewAvailable: false,
 		CreatedAt:        content.CreatedAt,
 		UpdatedAt:        content.UpdatedAt,
 		DeletedAt:        nil,
 	}
 
-	// Set FolderId if ParentID is provided
-	if content.ParentID != "" {
-		response.FolderId = &content.ParentID
-	}
-
 	// Set Owner with default values
 	response.Owner = api.UserSummary{
-		Id:        content.ID.Hex(),
-		Email:     "unknown@example.com", // Default email
+		Id:        idStr,
+		Email:     "unknown@example.com",
 		FirstName: "Unknown",
 		LastName:  "User",
 		AvatarUrl: nil,
@@ -340,7 +349,7 @@ func (fc *FileController) ListDocuments(c *gin.Context) {
 	// Check for search query parameter
 	searchQuery := c.Query("search")
 
-	var content []Content
+	var content []storage.Content
 	var err error
 
 	if searchQuery != "" {
@@ -357,12 +366,19 @@ func (fc *FileController) ListDocuments(c *gin.Context) {
 				ids[i] = result.ID
 			}
 
-			// Fetch documents by IDs from MongoDB
+			// Fetch documents by IDs from PostgreSQL
 			if len(ids) > 0 {
-				content, err = fc.repository.FindByIds(ids)
+				// convert string IDs from OpenSearch to int64
+				int64Ids := make([]int64, 0, len(ids))
+				for _, sid := range ids {
+					if n, parseErr := strconv.ParseInt(sid, 10, 64); parseErr == nil {
+						int64Ids = append(int64Ids, n)
+					}
+				}
+				content, err = fc.repository.FindByIds(int64Ids)
 				if err != nil {
 					fmt.Printf("error fetching documents by ids: %v\n", err)
-					content = []Content{}
+					content = []storage.Content{}
 				}
 			}
 		}
@@ -397,13 +413,15 @@ func (fc *FileController) GetPresignedURL(c *gin.Context) {
 }
 
 // indexFileAsync extracts text from the file and indexes it in OpenSearch asynchronously
-func (fc *FileController) indexFileAsync(content *Content) {
+func (fc *FileController) indexFileAsync(content *storage.Content) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
+		idStr := strconv.FormatInt(content.ID, 10)
+
 		// Retrieve the file from storage
-		reader, _, err := fc.storageService.StreamDocument(ctx, content.ID.Hex())
+		reader, _, err := fc.storageService.StreamDocument(ctx, idStr)
 		if err != nil {
 			fmt.Printf("failed to stream document for indexing: %v\n", err)
 			return
@@ -411,11 +429,11 @@ func (fc *FileController) indexFileAsync(content *Content) {
 		defer func() { _ = reader.Close() }()
 
 		// Create OpenSearch index document
-		indexDoc := &OpenSearchIndexDocument{
-			ID:            content.ID.Hex(),
+		indexDoc := &storage.OpenSearchIndexDocument{
+			ID:            idStr,
 			Filename:      content.Name,
 			ContentType:   content.ContentType,
-			ExtractedText: "", // Will be filled by IndexDocumentWithExtraction
+			ExtractedText: "",
 			CreatedAt:     content.CreatedAt,
 			UpdatedAt:     content.UpdatedAt,
 			FileSize:      content.Size,
