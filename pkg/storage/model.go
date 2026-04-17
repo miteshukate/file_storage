@@ -19,14 +19,14 @@ type User struct {
 type Content struct {
 	bun.BaseModel `bun:"table:contents,alias:c"`
 
-	ID           int64     `bun:"content_id,pk,autoincrement" json:"id"`
+	ID           int64     `bun:"id,pk,autoincrement" json:"id"`
 	ParentID     *int64    `bun:"parent_id,nullzero"          json:"parentId,omitempty"`
 	Name         string    `bun:"name,notnull"                json:"name"`
 	Type         string    `bun:"type,notnull,default:'file'" json:"type,omitempty"`
 	Size         int64     `bun:"size,default:0"              json:"size,omitempty"`
 	ContentType  string    `bun:"content_type"                json:"contentType,omitempty"`
 	Status       string    `bun:"status,notnull,default:'Active'" json:"status,omitempty"`
-	ContentId    uuid.UUID `bun:"object_id,pk,autoincrement" json:"objectId"`
+	ContentId    uuid.UUID `bun:"content_id,pk,autoincrement" json:"contentId"`
 	ETag         string    `bun:"etag"                        json:"etag,omitempty"`
 	LastModified time.Time `bun:"last_modified"               json:"lastModified,omitempty"`
 	CreatedAt    time.Time `bun:"created_at,notnull"          json:"createdAt,omitempty"`

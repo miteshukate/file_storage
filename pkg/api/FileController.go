@@ -45,33 +45,25 @@ func (fc *FileController) DeleteFile(c *gin.Context) {
 
 func (fc *FileController) DownloadFile(c *gin.Context) {
 	fileId := c.Param("fileId")
-	id, err := strconv.ParseInt(fileId, 10, 64)
+	fileUUID, err := uuid.Parse(fileId)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid document ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file ID"})
 		return
 	}
-	contents, err := fc.repository.FindByFilter(map[string]interface{}{
-		"content_id": id,
-		"status":     "Active",
-	})
+	content, err := fc.repository.FindByContentId(fileUUID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if len(contents) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
 		return
 	}
 
-	reader, meta, err := fc.storageService.StreamDocument(c.Request.Context(), strconv.FormatInt(contents[0].ID, 10))
+	reader, meta, err := fc.storageService.StreamDocument(c.Request.Context(), strconv.FormatInt(content.ID, 10))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	defer func() { _ = reader.Close() }()
 
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", path.Base(contents[0].Name)))
-
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", path.Base(content.Name)))
 	c.Header("Content-Type", meta.ContentType)
 	c.Header("Content-Length", fmt.Sprintf("%d", meta.Size))
 	c.Status(http.StatusOK)
@@ -85,27 +77,18 @@ func (fc *FileController) GetAllFiles(c *gin.Context) {
 }
 
 func (fc *FileController) GetFile(c *gin.Context) {
-	// Get file id from path
 	contentId := c.Param("fileId")
 	contentIdUUID, err := uuid.Parse(contentId)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid file ID"})
 		return
 	}
-	contentMap := map[string]interface{}{
-		"content_id": contentIdUUID,
-	}
-	contents, err := fc.repository.FindByFilter(contentMap)
+	content, err := fc.repository.FindByContentId(contentIdUUID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if len(contents) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return
 	}
-	// Convert to FileResponse and return
-	response := fc.ContentToFileResponse(&contents[0])
+	response := fc.ContentToFileResponse(content)
 	c.JSON(http.StatusOK, response)
 }
 
@@ -184,12 +167,17 @@ func (fc *FileController) UploadFile(c *gin.Context) {
 	parentId := c.PostForm("parentId")
 	var effectiveParent *int64
 	if parentId != "" {
+		parentUUID, err := uuid.Parse(parentId)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parentId: " + err.Error()})
+			return
+		}
 		parentMap := map[string]interface{}{
-			"contentId": parentId,
+			"content_id": parentUUID,
 		}
 		parent, err := fc.repository.FindByFilter(parentMap)
-		if len(parent) > 1 || err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parentId: " + err.Error()})
+		if err != nil || len(parent) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parentId"})
 			return
 		}
 		effectiveParent = &parent[0].ID
@@ -234,25 +222,18 @@ func (fc *FileController) UploadFile(c *gin.Context) {
 
 func (fc *FileController) GetDocument(c *gin.Context) {
 	name := c.Param("name")
-	id, err := strconv.ParseInt(name, 10, 64)
+	fileUUID, err := uuid.Parse(name)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid document ID"})
 		return
 	}
-	contents, err := fc.repository.FindByFilter(map[string]interface{}{
-		"content_id": id,
-		"status":     "Active",
-	})
+	content, err := fc.repository.FindByContentId(fileUUID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if len(contents) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
 		return
 	}
 
-	reader, meta, err := fc.storageService.StreamDocument(c.Request.Context(), strconv.FormatInt(contents[0].ID, 10))
+	reader, meta, err := fc.storageService.StreamDocument(c.Request.Context(), strconv.FormatInt(content.ID, 10))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -261,7 +242,7 @@ func (fc *FileController) GetDocument(c *gin.Context) {
 	// Set filename to original name
 
 	// Optional download hint
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", path.Base(contents[0].Name)))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", path.Base(content.Name)))
 
 	c.Header("Content-Type", meta.ContentType)
 	c.Header("Content-Length", fmt.Sprintf("%d", meta.Size))
@@ -296,7 +277,7 @@ func (fc *FileController) ContentToFileResponse(content *storage.Content) api.Fi
 		extension = content.Name[idx+1:]
 	}
 
-	idStr := strconv.FormatInt(content.ID, 10)
+	idStr := content.ContentId.String()
 
 	// Convert ParentID *int64 to *string for FolderId
 	var folderIdStr *string
@@ -450,4 +431,11 @@ func (fc *FileController) indexFileAsync(content *storage.Content) {
 			fmt.Printf("failed to flush OpenSearch index: %v\n", err)
 		}
 	}()
+}
+
+func getFileHierarchy(folderId int) {
+	if folderId == 0 {
+		return
+	}
+
 }

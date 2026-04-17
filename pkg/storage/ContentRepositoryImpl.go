@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
 
@@ -35,7 +36,7 @@ func (r *ContentRepositoryImpl) Update(id int64, content *Content) (*Content, er
 	content.UpdatedAt = time.Now()
 	_, err := r.db.NewUpdate().
 		Model(content).
-		Where("content_id = ?", id).
+		Where("id = ?", id).
 		Exec(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("ContentRepository.Update: %w", err)
@@ -54,9 +55,18 @@ func (r *ContentRepositoryImpl) FindAll() ([]Content, error) {
 
 func (r *ContentRepositoryImpl) FindById(id int64) (*Content, error) {
 	content := &Content{}
-	err := r.db.NewSelect().Model(content).Where("content_id = ?", id).Scan(context.Background())
+	err := r.db.NewSelect().Model(content).Where("id = ?", id).Scan(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("ContentRepository.FindById: %w", err)
+	}
+	return content, nil
+}
+
+func (r *ContentRepositoryImpl) FindByContentId(contentId uuid.UUID) (*Content, error) {
+	content := &Content{}
+	err := r.db.NewSelect().Model(content).Where("c.content_id = ?", contentId).Scan(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("ContentRepository.FindByContentId: %w", err)
 	}
 	return content, nil
 }
@@ -75,7 +85,7 @@ func (r *ContentRepositoryImpl) FindByIds(ids []int64) ([]Content, error) {
 		return []Content{}, nil
 	}
 	var contents []Content
-	err := r.db.NewSelect().Model(&contents).Where("content_id IN (?)", bun.In(ids)).Scan(context.Background())
+	err := r.db.NewSelect().Model(&contents).Where("id IN (?)", bun.In(ids)).Scan(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("ContentRepository.FindByIds: %w", err)
 	}
@@ -96,7 +106,7 @@ func (r *ContentRepositoryImpl) FindByFilter(filter map[string]interface{}) ([]C
 }
 
 func (r *ContentRepositoryImpl) Delete(id int64) error {
-	_, err := r.db.NewDelete().Model((*Content)(nil)).Where("content_id = ?", id).Exec(context.Background())
+	_, err := r.db.NewDelete().Model((*Content)(nil)).Where("id = ?", id).Exec(context.Background())
 	if err != nil {
 		return fmt.Errorf("ContentRepository.Delete: %w", err)
 	}

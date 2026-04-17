@@ -15,14 +15,14 @@ func RunMigrations(db *bun.DB) {
 	// Run migration to create users table if it doesn't exist
 	_, err := db.NewCreateTable().
 		Model((*storage.User)(nil)).
-		IfNotExists().
+		//IfNotExists().
 		Exec(context.Background())
 	log.Print("Error running users migration: ", err)
 
 	// Run migration to create contents table if it doesn't exist
 	_, err = db.NewCreateTable().
 		Model((*storage.Content)(nil)).
-		IfNotExists().
+		//IfNotExists().
 		Exec(context.Background())
 	log.Print("Error running contents migration: ", err)
 }

@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"file_storage/pkg/storage"
+	"github.com/google/uuid"
 	"io"
 )
 
 type ContentRepository interface {
 	FindAll() ([]storage.Content, error)
 	FindById(id int64) (*storage.Content, error)
+	FindByContentId(contentId uuid.UUID) (*storage.Content, error)
 	FindByParentId(parentId int64) ([]storage.Content, error)
 	FindByFilter(filter map[string]interface{}) ([]storage.Content, error)
 	Create(content *storage.Content) (*storage.Content, error)

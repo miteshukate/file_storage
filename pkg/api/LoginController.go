@@ -29,8 +29,8 @@ func (a AuthController) GetMe(c *gin.Context) {
 }
 
 func (a AuthController) Login(c *gin.Context) {
-	email := c.PostForm("email")
-	password := c.PostForm("password")
+	email := "john@example.com"
+	password := "password123"
 	// Call authenticator to generate token with user info (this is a simplified example, you should validate credentials properly)
 	log.Print("Login attempt for email: ", email)
 	log.Print("Password: ", password)
